@@ -5,9 +5,7 @@
 package id3v2
 
 import (
-	// "bytes"
 	"encoding/binary"
-	// "fmt"
 	"io"
 )
 
@@ -20,18 +18,17 @@ import (
 type SynchronisedLyricsFrame struct {
 	Encoding          Encoding
 	Language          string
-	TimestampFormat   byte
+	TimestampFormat   TimestampFormat
 	ContentType       byte
 	ContentDescriptor string
 	SynchronizedTexts []SyncedText
 }
 
-type TimestampFormat int
+type TimestampFormat byte
 
 const (
-	Unknown TimestampFormat = iota
-	AbsoluteMpegFrames
-	AbsoluteMilliseconds
+	SYLTAbsoluteMpegFramesTimestampFormat TimestampFormat = iota + 1
+	SYLTAbsoluteMillisecondsTimestampFormat
 )
 
 var (
@@ -53,19 +50,6 @@ type SyncedText struct {
 	Timestamp uint32
 }
 
-func (sylf SynchronisedLyricsFrame) Size() int {
-	var s int
-	for _, v := range sylf.SynchronizedTexts {
-		s += encodedSize(v.Text, sylf.Encoding)
-		s += len(sylf.Encoding.TerminationBytes)
-		s += 4
-	}
-
-	return 1 + len(sylf.Language) + encodedSize(sylf.ContentDescriptor, sylf.Encoding) +
-		+len(sylf.Encoding.TerminationBytes) + s +
-		+1 + 1
-}
-
 func (sylf SynchronisedLyricsFrame) UniqueIdentifier() string {
 	return sylf.Language + sylf.ContentDescriptor
 }
@@ -80,6 +64,19 @@ func bytesToInt(timeStampBytes []byte) uint32 {
 	return binary.BigEndian.Uint32(timeStampBytes)
 }
 
+func (sylf SynchronisedLyricsFrame) Size() int {
+	var s int
+	for _, v := range sylf.SynchronizedTexts {
+		s += encodedSize(v.Text, sylf.Encoding)
+		s += len(sylf.Encoding.TerminationBytes)
+		s += 4
+	}
+
+	return 1 + len(sylf.Language) + 1 + 1 +
+		encodedSize(sylf.ContentDescriptor, sylf.Encoding) + +len(sylf.Encoding.TerminationBytes) +
+		s
+}
+
 func (sylf SynchronisedLyricsFrame) WriteTo(w io.Writer) (n int64, err error) {
 	if len(sylf.Language) != 3 {
 		return n, ErrInvalidLanguageLength
@@ -87,7 +84,7 @@ func (sylf SynchronisedLyricsFrame) WriteTo(w io.Writer) (n int64, err error) {
 	return useBufWriter(w, func(bw *bufWriter) {
 		bw.WriteByte(sylf.Encoding.Key)
 		bw.WriteString(sylf.Language)
-		bw.WriteByte(sylf.TimestampFormat)
+		bw.WriteByte(byte(sylf.TimestampFormat))
 		bw.WriteByte(sylf.ContentType)
 		bw.EncodeAndWriteText(sylf.ContentDescriptor, sylf.Encoding)
 		bw.Write(sylf.Encoding.TerminationBytes)
@@ -126,7 +123,7 @@ func parseSynchronisedLyricsFrame(br *bufReader) (Framer, error) {
 	sylf := SynchronisedLyricsFrame{
 		Encoding:          encoding,
 		Language:          string(language),
-		TimestampFormat:   timestampFormat,
+		TimestampFormat:   TimestampFormat(timestampFormat),
 		ContentType:       contentType,
 		ContentDescriptor: decodeText(contentDescriptor, encoding),
 		SynchronizedTexts: s,
